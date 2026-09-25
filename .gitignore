@@ -92,3 +92,5 @@ buildNumber.properties
 *.backup
 *.orig
 .idea
+.atl
+.codegraph

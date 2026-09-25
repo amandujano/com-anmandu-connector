@@ -4,7 +4,6 @@ import com.anmandu.connector.aggregators.AvgAggregator;
 import com.anmandu.connector.aggregators.TimedAvgAggregator;
 import com.anmandu.connector.aggregators.WindowedAvgAggregator;
 import com.anmandu.connector.dto.Input;
-import org.apache.camel.BindToRegistry;
 import org.apache.camel.Exchange;
 import org.apache.camel.Processor;
 import org.apache.camel.builder.RouteBuilder;
@@ -13,34 +12,17 @@ import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 
-/**
- * A simple Camel route that triggers from a timer and calls a bean and prints to system out.
- * <p/>
- * Use <tt>@Component</tt> to make Camel auto detect this route when starting.
- */
 @Component
 public class MySpringBootRouter extends RouteBuilder {
-
-    @BindToRegistry("avgAggregator")
-    private AvgAggregator avg = new AvgAggregator();
-
-    @BindToRegistry("windowedAvgAggregator")
-    private WindowedAvgAggregator windowAvg = new WindowedAvgAggregator();
-
-    @BindToRegistry("timedAvgAggregator")
-    private TimedAvgAggregator timedWindowAvg = new TimedAvgAggregator();
-
     @Override
     public void configure() {
-        from("timer:hello?period={{timer.period}}").routeId("init")
-            .transform().method("myBean", "saySomething")
-            .to("seda:myInternalQueue?blockWhenFull=true")
-            .log("---");
+        from("timer:every-{{timer.period}}?period={{timer.period}}").routeId("timer-{{timer.period}}")
+            .transform().method("mockInput", "getInput")
+            .to("seda:myInternalQueue?blockWhenFull=true");
 
-        from("file://data?fileName=input_data.json&delete=false&noop=true")
+        from("file://data?fileName=input_data.json&delete=false&noop=true").autoStartup(false)
             .unmarshal().json(JsonLibrary.Jackson, Input.class)
             .split(body()).parallelProcessing()
-
                 .setHeader("message-id", simple("${header.batch-id}-${random(1,10000)}"))
                 .to("seda:myInternalQueue?blockWhenFull=true")
             .end()
@@ -50,8 +32,8 @@ public class MySpringBootRouter extends RouteBuilder {
         from("seda:myInternalQueue?size=10")
             .doTry()
                 //.to("direct:AvgProcessor")
-                .to("direct:WindowedAvgProcessor")
-                //.to("direct:TimeWindowedAvgProcessor")
+                //.to("direct:WindowedAvgProcessor")
+                .to("direct:TimeWindowedAvgProcessor")
             .doCatch(Exception.class)
                 .log("Failed to process: ${body} | Error: ${exception.message}")
             .end();
@@ -65,14 +47,12 @@ public class MySpringBootRouter extends RouteBuilder {
                         Input body = exchange.getIn().getBody(Input.class);
                         Double measure = body.getMeasurement();
 
-                        // Recuperar el acumulador único desde el Registry de Camel
                         AvgAggregator avg = exchange.getContext()
                             .getRegistry()
                             .lookupByNameAndType("avgAggregator", AvgAggregator.class);
 
                         double partialAvg = avg.semiCompute(measure);
-                        exchange.getIn().setHeader("partialAvg", partialAvg);
-                        log.info("consume {} - partialAvg: {}", body.getId(), partialAvg);
+                        log.info("measure {} - total items: {} - partialAvg: {}", measure, avg.getCounter(), partialAvg);
                     }
                     catch (Exception e) {
                         System.out.println(e);
@@ -90,7 +70,6 @@ public class MySpringBootRouter extends RouteBuilder {
                         Double measure = body.getMeasurement();
                         String timestamp = body.getTimestamp();
 
-                        // Recuperar el acumulador único desde el Registry de Camel
                         WindowedAvgAggregator windowedAvg = exchange.getContext()
                             .getRegistry()
                             .lookupByNameAndType("windowedAvgAggregator", WindowedAvgAggregator.class);
@@ -120,7 +99,6 @@ public class MySpringBootRouter extends RouteBuilder {
                         String timestamp = body.getTimestamp();
                         Integer windowDuration = 4;
 
-                        // Recuperar el acumulador único desde el Registry de Camel
                         TimedAvgAggregator timedWindowedAvg = exchange.getContext()
                                 .getRegistry()
                                 .lookupByNameAndType("timedAvgAggregator", TimedAvgAggregator.class);
