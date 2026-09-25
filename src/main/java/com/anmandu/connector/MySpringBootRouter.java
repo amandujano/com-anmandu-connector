@@ -1,13 +1,13 @@
 package com.anmandu.connector;
 
 import com.anmandu.connector.aggregators.AvgAggregator;
+import com.anmandu.connector.aggregators.PartitionTimedAvgAggregator;
 import com.anmandu.connector.aggregators.TimedAvgAggregator;
 import com.anmandu.connector.aggregators.WindowedAvgAggregator;
 import com.anmandu.connector.dto.Input;
 import org.apache.camel.Exchange;
 import org.apache.camel.Processor;
 import org.apache.camel.builder.RouteBuilder;
-import org.apache.camel.model.dataformat.JsonLibrary;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -16,28 +16,19 @@ import java.time.Instant;
 public class MySpringBootRouter extends RouteBuilder {
     @Override
     public void configure() {
-        from("timer:every-{{timer.period}}?period={{timer.period}}").routeId("timer-{{timer.period}}")
-            .transform().method("mockInput", "getInput")
-            .to("seda:myInternalQueue?blockWhenFull=true");
-
-        from("file://data?fileName=input_data.json&delete=false&noop=true").autoStartup(false)
-            .unmarshal().json(JsonLibrary.Jackson, Input.class)
-            .split(body()).parallelProcessing()
-                .setHeader("message-id", simple("${header.batch-id}-${random(1,10000)}"))
-                .to("seda:myInternalQueue?blockWhenFull=true")
-            .end()
-            .log("finish");
 
         // Consumer: Picks up messages from the queue asynchronously
         from("seda:myInternalQueue?size=10")
             .doTry()
                 //.to("direct:AvgProcessor")
                 //.to("direct:WindowedAvgProcessor")
-                .to("direct:TimeWindowedAvgProcessor")
+                //.to("direct:TimeWindowedAvgProcessor")
+                .to("direct:PartitionTimeWindowedAvgProcessor")
             .doCatch(Exception.class)
                 .log("Failed to process: ${body} | Error: ${exception.message}")
             .end();
 
+        // Aggregator zone
         from("direct:AvgProcessor")
             .routeId("avg-processor")
             .process(new Processor() {
@@ -117,6 +108,26 @@ public class MySpringBootRouter extends RouteBuilder {
                             log.info(" [Final window: closed] start: {} | processed items: {} | avg: {}",
                                     timedWindowedAvg.getStart(), timedWindowedAvg.getWindowCounter(), timedWindowedAvg.getAverage());
                         }
+                    }
+                    catch (Exception e) {
+                        System.out.println(e);
+                    }
+                }
+            });
+
+        from("direct:PartitionTimeWindowedAvgProcessor")
+            .routeId("parititon-time-windowed-avg-processor")
+            .process(new Processor() {
+                @Override
+                public void process(Exchange exchange) throws Exception {
+                    try {
+                        Input body = exchange.getIn().getBody(Input.class);
+                        PartitionTimedAvgAggregator partitionTimedAvgAggregator = exchange.getContext()
+                                .getRegistry()
+                                .lookupByNameAndType("partitionTimedAvgAggregator", PartitionTimedAvgAggregator.class);
+
+                        //Boolean isLastItem = exchange.getProperty(Exchange.SPLIT_COMPLETE, Boolean.class);
+                        partitionTimedAvgAggregator.processItem(body);
                     }
                     catch (Exception e) {
                         System.out.println(e);

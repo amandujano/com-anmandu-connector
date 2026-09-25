@@ -1,6 +1,7 @@
 package com.anmandu.connector;
 
 import com.anmandu.connector.aggregators.AvgAggregator;
+import com.anmandu.connector.aggregators.PartitionTimedAvgAggregator;
 import com.anmandu.connector.aggregators.TimedAvgAggregator;
 import com.anmandu.connector.aggregators.WindowedAvgAggregator;
 import org.apache.camel.BindToRegistry;
@@ -17,6 +18,9 @@ public class ExtraRegistry extends RouteBuilder {
 
     @BindToRegistry("timedAvgAggregator")
     private TimedAvgAggregator timedWindowAvg = new TimedAvgAggregator();
+
+    @BindToRegistry("partitionTimedAvgAggregator")
+    private PartitionTimedAvgAggregator partitionTimedAvgAggregator = new PartitionTimedAvgAggregator();
 
     @Override
     public void configure() throws Exception {
